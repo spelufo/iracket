@@ -1,0 +1,5 @@
+{
+	"argv": ["./iracket.rkt", "{connection_file}"],
+	"display_name": "Racket",
+	"language": "racket"
+}
