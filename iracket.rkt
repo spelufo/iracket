@@ -61,17 +61,13 @@
      (version . ,protocol-version)))
 
 (define (send-multipart sock parts)
-  (printf "Sending parts: ~a\n" parts)
   (let loop ([p parts])
-    (define more? (empty? (cddr p)))
-    (define m (make-msg-with-data (car p)))
-    (socket-send-msg! m sock (if more? 'SNDMORE empty))
-    (msg-close! m)
-    (free m)
-    (when more? (loop (cdr p)))))
-
-; (define (send-multipart sock parts)
-  
+    (when (not (empty? p))
+      (define m (make-msg-with-data (car p)))
+      (socket-send-msg! m sock (if (empty? (cdr p)) empty 'SNDMORE))
+      (msg-close! m)
+      (free m)
+      (loop (cdr p)))))
 
 (define (send sock msg-type [content #hasheq()] [parent #hasheq()] [metadata #hasheq()] [identities empty])
   (define header (make-header msg-type))
@@ -92,7 +88,7 @@
         [metadata  (bytes->jsexpr (socket-recv! sock))]
         [content   (bytes->jsexpr (socket-recv! sock))])
     ;; TODO: (verify-signature ... )
-    (printf "Recieved:\n\t~s\n\t~s\n\t~s\n\t~s\n\t~s\n" identities header parent metadata content)
+    ; (printf "Recieved:\n\t~s\n\t~s\n\t~s\n\t~s\n\t~s\n" identities header parent metadata content)
     (values identities header parent metadata content)))
 
 
