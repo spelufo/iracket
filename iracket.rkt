@@ -8,6 +8,7 @@
          racket/date
          racket/place
          grommet/crypto/hmac
+         grommet/crypto/base64
          "heartbeat.rkt")
 
 (define connection-file (vector-ref (current-command-line-arguments) 0))
@@ -50,6 +51,7 @@
 (define kernel-session (uuid-generate))
 (define kernel-user "kernel")
 (define protocol-version "5.0")
+(define eval-ns (make-base-namespace))
 
 (define (make-header msg-type)
   `#hasheq(
@@ -68,11 +70,12 @@
       (msg-close! m)
       (free m)
       (loop (cdr p)))))
+  ; (printf "Sent message: ~a\n" parts))
 
 (define (send sock msg-type [content #hasheq()] [parent #hasheq()] [metadata #hasheq()] [identities empty])
   (define header (make-header msg-type))
   (define msg-parts (map jsexpr->bytes (list header parent metadata content)))
-  ; (define signature (hmac-sha256 key (apply bytes-append msg-parts)))
+  ; (define signature (string->bytes/utf-8 (base64-encode (hmac-sha256 key (apply bytes-append msg-parts)))))
   (define signature #"")
   (send-multipart sock (append identities (list DELIM signature) msg-parts)))
 
@@ -91,6 +94,7 @@
     ; (printf "Recieved:\n\t~s\n\t~s\n\t~s\n\t~s\n\t~s\n" identities header parent metadata content)
     (values identities header parent metadata content)))
 
+(define exec-count 0)
 
 (define (handle-msg ids header parent metadata content)
   (define handler
@@ -118,20 +122,28 @@
                     
 
       [("execute_request") (lambda (ids header parent meta content)
-                             (printf "exec req\n")
+                             ; (printf "exec req\n")
                              
                              (send iopub-socket "status" `#hasheq((execution_state . "busy")) header)
                              
-                             (send iopub-socket "execute_input" `#hasheq((code . ,(hash-ref content 'code))
-                                                                         (execution_count . 1)) header)
+                             (define code (string-append "(begin " (hash-ref content 'code) ")"))
                              
-                             (send iopub-socket "execute_result" #hasheq((metadata . #hasheq())
-                                                                         (data . #hasheq((text/plain . "42!!!")))
-                                                                         (execution_count . 1)) header)
+                             (send iopub-socket "execute_input" `#hasheq((code . ,code)
+                                                                         (execution_count . ,exec-count)) header)
+                             
+                             (define result-expr (eval (read (open-input-string code)) eval-ns))
+                             (define o (open-output-string))
+                             (write result-expr o)
+                             (define result (get-output-string o))
+                             (set! exec-count (+ 1 exec-count))
+                             
+                             (send iopub-socket "execute_result" `#hasheq((metadata . #hasheq())
+                                                                          (data . #hasheq((text/plain . ,result)))
+                                                                          (execution_count . ,exec-count)) header)
                              
                              (send iopub-socket "status" #hasheq((execution_state . "idle")) header)
                              
-                             (send shell-socket "execute_reply" #hasheq((status . "OK") (execution_count . 1)) header #hasheq() ids))]
+                             (send shell-socket "execute_reply" `#hasheq((status . "OK") (execution_count . ,exec-count)) header #hasheq() ids))]
       
       [("history_request") (lambda (ids header parent meta content)
                              (printf "history req\n"))]
